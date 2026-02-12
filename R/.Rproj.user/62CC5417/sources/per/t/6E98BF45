@@ -1,0 +1,26 @@
+{
+    "id": "6E98BF45",
+    "path": "~/WASP-DDLS/synthetic_ad/R/get_larger_adni.R",
+    "project_path": "get_larger_adni.R",
+    "type": "r_source",
+    "hash": "3399097817",
+    "contents": "",
+    "dirty": false,
+    "created": 1769780776914.0,
+    "source_on_save": false,
+    "relative_order": 1,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "84,70",
+        "scrollLine": "63"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1769767081,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1769767081,
+    "read_only": false,
+    "read_only_alternatives": []
+}
