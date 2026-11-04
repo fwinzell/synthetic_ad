@@ -7,290 +7,210 @@ library(ggforce)
 library(paletteer)
 library(ggsci)
 
+load_benchmark_data <- function(dataset,
+                                #main_dir, # /path/to/dir_with_syntheval_output
+                                epsilons_ds = c(5, 10, 50, 100, 200, NA), 
+                                epochs_ctgan = 750, 
+                                settings_ctgan = c("default", "optim"),
+                                temps_tabpfn = c('1.0', '0.75', '0.5', '0.25'),
+                                eps_td = c('1.0', '10.0', '25.0', '50.0', '100.0')) {
+  
+  samples <- c(rep(100, length(epsilons_ds)-length(which(is.na(epsilons_ds)))), 18)
+  file_paths <- paste0("~/Python/WASP-DDLS/SE-benchmark/", dataset, "/bmk_new_deg2_eps", ifelse(is.na(epsilons_ds), "zero", epsilons_ds), ".csv")
+  
+  # Read CSVs in a loop
+  res_list <- list()
+  for (i in seq_along(epsilons_ds)) {
+    if (file.exists(file_paths[i])) {
+    df <- read.csv(file_paths[i])
+    df$Epsilon <- epsilons_ds[i]
+    df$samples <- samples[i]
+    res_list[[i]] <- df
+    }
+  }
+  
+  # Combine all data frames
+  bmk_ds <- bind_rows(res_list)
+  
+  
+  util_cols <- c("mutual_inf_diff_value",  "ks_tvd_stat_value", 
+                 "frac_ks_sigs_value","avg_F1_diff_value", "avg_F1_diff_hout_value", 
+                 "nnaa_value")
+  priv_cols <- c("priv_loss_nndr_value", "priv_loss_nnaa_value","hit_rate_value", 
+                 "avg_nndr_value", "eps_identif_risk_value", "priv_loss_eps_value",  
+                 "mia_recall_value", "att_discl_risk_value")
+  cols <- c(util_cols, priv_cols)
+  
+  
+  bmk_ds$Epsilon <- bmk_ds %>% 
+    select(Epsilon) %>% 
+    mutate_all(~replace(., is.na(.), 0)) %>% 
+    mutate(Epsilon = factor(Epsilon, levels = as.character(unique(Epsilon)))) %>% 
+    pull(Epsilon)  
+  
+  # CTGAN 
+  #setting <- c("default", "optim")
+  file_paths <- paste0("~/Python/WASP-DDLS/SE-benchmark/", dataset, "/bmk_new_ctgan_", settings_ctgan, "_epochs_", epochs_ctgan, ".csv")
+  #file_paths <- c(file_paths, "~/Python/WASP-DDLS/SE-benchmark/bmk_ctgan_epochs_100.csv")
+  
+  # Read CSVs in a loop
+  res_list <- list()
+  for (i in seq_along(file_paths)) {
+    if (file.exists(file_paths[i])) {
+    df <- read.csv(file_paths[i])
+    df$Epochs <- epochs_ctgan
+    df$samples <- 100
+    res_list[[i]] <- df
+    }
+  }
+  
+  # Combine all data frames
+  bmk_ctgan <- bind_rows(res_list)
+  
+  bmk_ctgan$Epochs <- as.factor(bmk_ctgan$Epochs)
+  
+  
+  # Synthpop 
+  bmk_synthpop <- read.csv(paste0("~/Python/WASP-DDLS/SE-benchmark/", dataset, "/bmk_new_synthpop.csv")) %>% mutate(
+    Epochs = 0,
+    samples = 100
+  )
+  
+  # TabPFN
+  file_paths <- paste0("~/Python/WASP-DDLS/SE-benchmark/", dataset, "/bmk_new_tabpfn_t_", temps_tabpfn, ".csv")
+  
+  # Read CSVs in a loop
+  res_list <- list()
+  for (i in seq_along(file_paths)) {
+    if (file.exists(file_paths[i])) {
+      df <- read.csv(file_paths[i])
+      df$temp <- temps_tabpfn[i]
+      df$samples <- 100
+      res_list[[i]] <- df 
+    }
+  }
+  
+  # Combine all data frames
+  bmk_tabpfn <- bind_rows(res_list)
+  
+  bmk_tabpfn$temp <- as.factor(bmk_tabpfn$temp)
+  
+  
+  # TableDiffusion
+  file_paths <- paste0("~/Python/WASP-DDLS/SE-benchmark/", dataset, "/bmk_new_tablediffusion_td_epsilon_", eps_td, ".csv")
+  
+  # Read CSVs in a loop
+  res_list <- list()
+  for (i in seq_along(file_paths)) {
+    df <- read.csv(file_paths[i])
+    df$epsilon <- eps_td[i]
+    df$samples <- 100
+    res_list[[i]] <- df
+  }
+  
+  # Combine all data frames
+  bmk_td <- bind_rows(res_list)
+  
+  bmk_td$epsilon <- as.factor(bmk_td$epsilon)
+  
+  label_list = c(paste0("DS (", na.omit(epsilons_ds),  ")"), 
+                 "DS w/o DP", 
+                 paste0("CTGAN (", settings_ctgan, ")"),
+                 "Synthpop", 
+                 paste0("TabPFN (t=", unique(bmk_tabpfn$temp), ")"),
+                 paste0("TD (", round(as.numeric(eps_td)), ")"))
+  
+  util_df <- rbind(select(bmk_ds, dataset, model, all_of(util_cols)),
+                        select(bmk_ctgan, dataset, model, all_of(util_cols)),
+                        select(bmk_synthpop, dataset, model, all_of(util_cols)),
+                        select(bmk_tabpfn, dataset, model, all_of(util_cols)),
+                        select(bmk_td, dataset, model, all_of(util_cols))
+  ) |>
+    dplyr::mutate(avg_F1_diff_value = abs(avg_F1_diff_value),
+                  avg_F1_diff_hout_value = abs(avg_F1_diff_hout_value)) |>
+    dplyr::mutate(mutual_inf_diff = 1 - tanh(mutual_inf_diff_value),
+                  ks_tvd_stat = 1 - ks_tvd_stat_value,
+                  frac_ks_sigs = 1 - frac_ks_sigs_value,
+                  avg_F1_diff = 1 - abs(avg_F1_diff_value),
+                  avg_F1_diff_hout = 1 - abs(avg_F1_diff_hout_value),
+                  nnaa = 1 - nnaa_value) 
+  util_df$util_score <- util_df |> dplyr::select(c(mutual_inf_diff, ks_tvd_stat, frac_ks_sigs, avg_F1_diff, avg_F1_diff_hout, nnaa)) |> rowMeans()
+  
+  util_df$Method <- factor(util_df$dataset, levels = unique(util_df$dataset),
+                                labels=label_list)
+  
+  priv_df <- rbind(select(bmk_ds, dataset, model, all_of(priv_cols)),
+                        select(bmk_ctgan, dataset, model, all_of(priv_cols)),
+                        select(bmk_synthpop, dataset, model, all_of(priv_cols)),
+                        select(bmk_tabpfn, dataset, model, all_of(priv_cols)),
+                        select(bmk_td, dataset, model, all_of(priv_cols))
+  ) |>
+    dplyr::mutate(priv_loss_nndr = 1 - abs(priv_loss_nndr_value),
+                  priv_loss_nnaa = 1 - abs(priv_loss_nnaa_value),
+                  priv_loss_eps = 1 - abs(priv_loss_eps_value),
+                  hit_rate = 1 - hit_rate_value,
+                  eps_identif_risk = 1 - eps_identif_risk_value,
+                  mia_recall = 1 - mia_recall_value,
+                  att_discl_risk = 1 - att_discl_risk_value) 
+  priv_df$priv_score <- priv_df |> dplyr::select(c(priv_loss_nndr, priv_loss_nnaa, priv_loss_eps, hit_rate, eps_identif_risk, att_discl_risk)) |> rowMeans()
+  
+  priv_df$Method <- factor(priv_df$dataset, levels = unique(priv_df$dataset),
+                                labels=label_list)
+  
+  up_df <- util_df |> dplyr::select(c(Method, model, util_score)) |> 
+    dplyr::inner_join(priv_df |> dplyr::select(c(Method, model, priv_score)), by = c("Method", "model"))
+  
+  return(
+    list(
+      'util_df' = util_df,
+      'priv_df' = priv_df,
+      'up_df' = up_df
+    )
+  )
+}
+
 ##### ADNI #####
-epsilons <- c(5, 10, 50, 100, 200, NA) 
-samples <- c(rep(100, length(epsilons)-length(which(is.na(epsilons)))), 18)
-file_paths <- paste0("~/Python/WASP-DDLS/SE-benchmark/adni/bmk_new_deg2_eps", ifelse(is.na(epsilons), "zero", epsilons), ".csv")
-
-# Read CSVs in a loop
-res_list <- list()
-for (i in seq_along(epsilons)) {
-  df <- read.csv(file_paths[i])
-  df$Epsilon <- epsilons[i]
-  df$samples <- samples[i]
-  res_list[[i]] <- df
-}
-
-# Combine all data frames
-bmk_ds <- bind_rows(res_list)
+adni_list <- load_benchmark_data('adni')
 
 
-util_cols <- c("mutual_inf_diff_value",  "ks_tvd_stat_value", 
-               "frac_ks_sigs_value","avg_F1_diff_value", "avg_F1_diff_hout_value", 
-               "nnaa_value")
-priv_cols <- c("priv_loss_nndr_value", "priv_loss_nnaa_value","hit_rate_value", 
-               "avg_nndr_value", "eps_identif_risk_value", "priv_loss_eps_value",  
-               "mia_recall_value", "att_discl_risk_value")
-cols <- c(util_cols, priv_cols)
-
-
-bmk_ds$Epsilon <- bmk_ds %>% 
-  select(Epsilon) %>% 
-  mutate_all(~replace(., is.na(.), 0)) %>% 
-  mutate(Epsilon = factor(Epsilon, levels = as.character(unique(Epsilon)))) %>% 
-  pull(Epsilon)  
-
-# CTGAN 
-epochs <- c(750) 
-setting <- c("default", "optim")
-file_paths <- paste0("~/Python/WASP-DDLS/SE-benchmark/adni/bmk_new_ctgan_", setting, "_epochs_", epochs, ".csv")
-#file_paths <- c(file_paths, "~/Python/WASP-DDLS/SE-benchmark/bmk_ctgan_epochs_100.csv")
-
-# Read CSVs in a loop
-res_list <- list()
-for (i in seq_along(file_paths)) {
-  df <- read.csv(file_paths[i])
-  df$Epochs <- epochs[i]
-  df$samples <- 100
-  res_list[[i]] <- df
-}
-
-# Combine all data frames
-bmk_ctgan <- bind_rows(res_list)
-
-bmk_ctgan$Epochs <- as.factor(bmk_ctgan$Epochs)
-
-
-# Synthpop 
-bmk_synthpop <- read.csv("~/Python/WASP-DDLS/SE-benchmark/adni/bmk_synthpop_2.csv") %>% mutate(
-  Epochs = 0,
-  samples = 100
-)
-
-# TabPFN
-temps <- c('1.0', '0.75', '0.5', '0.25') 
-file_paths <- paste0("~/Python/WASP-DDLS/SE-benchmark/adni/bmk_new_tabpfn_t_", temps, ".csv")
-
-# Read CSVs in a loop
-res_list <- list()
-for (i in seq_along(file_paths)) {
-  df <- read.csv(file_paths[i])
-  df$temp <- temps[i]
-  df$samples <- 100
-  res_list[[i]] <- df
-}
-
-# Combine all data frames
-bmk_tabpfn <- bind_rows(res_list)
-
-bmk_tabpfn$temp <- as.factor(bmk_tabpfn$temp)
-
-
-label_list = c("DS (5)", "DS (10)","DS (50)","DS (100)", 
-               "DS (200)", "DS w/o DP", "CTGAN (default)", "CTGAN (optimal)",
-               "Synthpop", 
-               "TabPFN (t=1.0)", "TabPFN (t=0.75)", "TabPFN (t=0.5)", "TabPFN (t=0.25)")
-
-util_df_adni <- rbind(select(bmk_ds, dataset, model, all_of(util_cols)),
-                 select(bmk_ctgan, dataset, model, all_of(util_cols)),
-                 select(bmk_synthpop, dataset, model, all_of(util_cols)),
-                 select(bmk_tabpfn, dataset, model, all_of(util_cols))) |>
-  dplyr::mutate(avg_F1_diff_value = abs(avg_F1_diff_value),
-                avg_F1_diff_hout_value = abs(avg_F1_diff_hout_value)) |>
-  dplyr::mutate(mutual_inf_diff = 1 - tanh(mutual_inf_diff_value),
-                ks_tvd_stat = 1 - ks_tvd_stat_value,
-                frac_ks_sigs = 1 - frac_ks_sigs_value,
-                avg_F1_diff = 1 - abs(avg_F1_diff_value),
-                avg_F1_diff_hout = 1 - abs(avg_F1_diff_hout_value),
-                nnaa = 1 - nnaa_value) 
-util_df_adni$util_score <- util_df_adni |> dplyr::select(c(mutual_inf_diff, ks_tvd_stat, frac_ks_sigs, avg_F1_diff, avg_F1_diff_hout, nnaa)) |> rowMeans()
-
-util_df_adni$Method <- factor(util_df_adni$dataset, levels = unique(util_df_adni$dataset),
-                       labels=label_list)
-
-priv_df_adni <- rbind(select(bmk_ds, dataset, model, all_of(priv_cols)),
-                 select(bmk_ctgan, dataset, model, all_of(priv_cols)),
-                 select(bmk_synthpop, dataset, model, all_of(priv_cols)),
-                 select(bmk_tabpfn, dataset, model, all_of(priv_cols))) |>
-  dplyr::mutate(priv_loss_nndr = 1 - abs(priv_loss_nndr_value),
-                priv_loss_nnaa = 1 - abs(priv_loss_nnaa_value),
-                priv_loss_eps = 1 - abs(priv_loss_eps_value),
-                hit_rate = 1 - hit_rate_value,
-                eps_identif_risk = 1 - eps_identif_risk_value,
-                mia_recall = 1 - mia_recall_value,
-                att_discl_risk = 1 - att_discl_risk_value) 
-priv_df_adni$priv_score <- priv_df_adni |> dplyr::select(c(priv_loss_nndr, priv_loss_nnaa, priv_loss_eps, hit_rate, eps_identif_risk, att_discl_risk)) |> rowMeans()
-
-priv_df_adni$Method <- factor(priv_df_adni$dataset, levels = unique(priv_df_adni$dataset),
-                         labels=label_list)
-
-up_df_adni <- util_df_adni |> dplyr::select(c(Method, model, util_score)) |> 
-  dplyr::inner_join(priv_df_adni |> dplyr::select(c(Method, model, priv_score)), by = c("Method", "model"))
-
-
-colormap <- c(
+colormap_adni <- c(
   paletteer_d("rcartocolor::BluYl")[1:6],
   paletteer_d("beyonce::X58")[3:4],
   "#663399",
-  paletteer_d("ggsci::cyan_material")[c(1,3,5,7)]
+  paletteer_d("ggsci::cyan_material")[c(1,3,5,7)],
+  paletteer_d("MetBrewer::Benedictus")[1:5]
 )
 
-up_plot_adni <- ggplot(data = up_df_adni, aes(x=util_score, y=priv_score, fill=Method)) +
+up_plot_adni <- ggplot(data = adni_list$up_df, aes(x=util_score, y=priv_score, fill=Method)) +
   geom_point(pch=21, color = "black", size=3) +
   labs(title = "ADNI", x = "Utility", y = "Privacy") +
   #scale_fill_paletteer_d("rcartocolor::BluYl") +
-  scale_fill_manual(values = colormap) +
+  scale_fill_manual(values = colormap_adni) +
   theme_minimal() +
-  ylim(0.7,1.0) + xlim(0.3,0.85)
+  ylim(0.7,1.0) + xlim(0.1,0.85)
 
 plot(up_plot_adni)
 
-#ggsave("~/R/DDLS-plots/up_plot.png", up_plot, width = 7, height = 5, units = "in", dpi = 500)
-
 ###### A4 #########
-epsilons <- c(5, 10, 50, 100, 200, NA) 
-samples <- c(rep(100, length(epsilons)-length(which(is.na(epsilons)))), 23)
-file_paths <- paste0("~/Python/WASP-DDLS/SE-benchmark/a4/bmk_new_deg2_eps", ifelse(is.na(epsilons), "zero", epsilons), ".csv")
+a4_list <- load_benchmark_data('a4', temps_tabpfn = c('1.0'))
 
-# Read CSVs in a loop
-res_list <- list()
-for (i in seq_along(epsilons)) {
-  df <- read.csv(file_paths[i])
-  df$Epsilon <- epsilons[i]
-  df$samples <- samples[i]
-  res_list[[i]] <- df
-}
-
-# Combine all data frames
-bmk_ds <- bind_rows(res_list)
-
-
-util_cols <- c("mutual_inf_diff_value",  "ks_tvd_stat_value", 
-               "frac_ks_sigs_value","avg_F1_diff_value", "avg_F1_diff_hout_value", 
-               "nnaa_value")
-priv_cols <- c("priv_loss_nndr_value", "priv_loss_nnaa_value","hit_rate_value", 
-               "avg_nndr_value", "eps_identif_risk_value", "priv_loss_eps_value",  
-               "mia_recall_value", "att_discl_risk_value")
-cols <- c(util_cols, priv_cols)
-
-
-bmk_ds$Epsilon <- bmk_ds %>% 
-  select(Epsilon) %>% 
-  mutate_all(~replace(., is.na(.), 0)) %>% 
-  mutate(Epsilon = factor(Epsilon, levels = as.character(unique(Epsilon)))) %>% 
-  pull(Epsilon)  
-
-# CTGAN 
-epochs <- c(750) 
-setting <- c("default", "optim")
-file_paths <- paste0("~/Python/WASP-DDLS/SE-benchmark/a4/bmk_new_ctgan_", setting, "_epochs_", epochs, ".csv")
-#file_paths <- c(file_paths, "~/Python/WASP-DDLS/SE-benchmark/bmk_ctgan_epochs_100.csv")
-
-# Read CSVs in a loop
-res_list <- list()
-for (i in seq_along(file_paths)) {
-  df <- read.csv(file_paths[i])
-  df$Epochs <- epochs[i]
-  df$samples <- 100
-  res_list[[i]] <- df
-}
-
-# Combine all data frames
-bmk_ctgan <- bind_rows(res_list)
-
-bmk_ctgan$Epochs <- as.factor(bmk_ctgan$Epochs)
-
-
-# Synthpop 
-bmk_synthpop <- read.csv("~/Python/WASP-DDLS/SE-benchmark/a4/bmk_new_synthpop.csv") %>% mutate(
-  Epochs = 0,
-  samples = 100
-)
-
-# TabPFN 
-temps <- c('1.0') 
-file_paths <- paste0("~/Python/WASP-DDLS/SE-benchmark/a4/bmk_new_tabpfn_t_", temps, ".csv")
-
-# Read CSVs in a loop
-res_list <- list()
-for (i in seq_along(file_paths)) {
-  df <- read.csv(file_paths[i])
-  df$temp <- temps[i]
-  df$samples <- 100
-  res_list[[i]] <- df
-}
-
-# Combine all data frames
-bmk_tabpfn <- bind_rows(res_list)
-
-bmk_tabpfn$temp <- as.factor(bmk_tabpfn$temp)
-
-
-label_list = c("DS (5)", "DS (10)", "DS (50)", "DS (100)", "DS (200)", "DS w/o DP", 
-               "CTGAN (default)", "CTGAN (optimal)", 
-               "Synthpop", "TabPFN (t=1.0")
-
-util_df_a4 <- rbind(select(bmk_ds, dataset, model, all_of(util_cols)),
-                 select(bmk_ctgan, dataset, model, all_of(util_cols)),
-                 select(bmk_synthpop, dataset, model, all_of(util_cols)),
-                 select(bmk_tabpfn, dataset, model, all_of(util_cols))
-                 ) |>
-  dplyr::mutate(avg_F1_diff_value = abs(avg_F1_diff_value),
-                avg_F1_diff_hout_value = abs(avg_F1_diff_hout_value)) |>
-  dplyr::mutate(mutual_inf_diff = 1 - tanh(mutual_inf_diff_value),
-                ks_tvd_stat = 1 - ks_tvd_stat_value,
-                frac_ks_sigs = 1 - frac_ks_sigs_value,
-                avg_F1_diff = 1 - abs(avg_F1_diff_value),
-                avg_F1_diff_hout = 1 - abs(avg_F1_diff_hout_value),
-                nnaa = 1 - nnaa_value) 
-util_df_a4$util_score <- util_df_a4 |> dplyr::select(c(mutual_inf_diff, ks_tvd_stat, frac_ks_sigs, avg_F1_diff, avg_F1_diff_hout, nnaa)) |> rowMeans()
-
-util_df_a4$Method <- factor(util_df_a4$dataset, levels = unique(util_df_a4$dataset),
-                         labels=label_list)
-
-priv_df_a4 <- rbind(select(bmk_ds, dataset, model, all_of(priv_cols)),
-                 select(bmk_ctgan, dataset, model, all_of(priv_cols)),
-                 select(bmk_synthpop, dataset, model, all_of(priv_cols)),
-                 select(bmk_tabpfn, dataset, model, all_of(priv_cols))
-                 ) |>
-  dplyr::mutate(priv_loss_nndr = 1 - abs(priv_loss_nndr_value),
-                priv_loss_nnaa = 1 - abs(priv_loss_nnaa_value),
-                priv_loss_eps = 1 - abs(priv_loss_eps_value),
-                hit_rate = 1 - hit_rate_value,
-                eps_identif_risk = 1 - eps_identif_risk_value,
-                mia_recall = 1 - mia_recall_value,
-                att_discl_risk = 1 - att_discl_risk_value) 
-priv_df_a4$priv_score <- priv_df_a4 |> dplyr::select(c(priv_loss_nndr, priv_loss_nnaa, priv_loss_eps, hit_rate, eps_identif_risk, att_discl_risk)) |> rowMeans()
-
-priv_df_a4$Method <- factor(priv_df_a4$dataset, levels = unique(priv_df_a4$dataset),
-                         labels=label_list)
-
-up_df_a4 <- util_df_a4 |> dplyr::select(c(Method, model, util_score)) |> 
-  dplyr::inner_join(priv_df_a4 |> dplyr::select(c(Method, model, priv_score)), by = c("Method", "model"))
-
-up_df_a4 <- up_df_a4 %>% mutate(Framework = as.factor(gsub(" .*", "", Method))) 
-
-#up_df$Method <- factor(up_df$dataset, levels = unique(up_df$dataset),
-#                       labels=c("DS (eps=5)", "DS (eps=10)", "DS (eps=25)","DS (eps=50)","DS (eps=100)", 
-#                                "DS (eps=200)", "DS w/o DP", "CTGAN (10 epochs)", 
-#                                "CTGAN (50 epochs)", "CTGAN (100 epochs)", "Synthpop"))
-
-colormap <- c(
+colormap_a4 <- c(
   paletteer_d("rcartocolor::BluYl")[1:6],
   paletteer_d("beyonce::X58")[3:4],
   "#663399",
-  paletteer_d("ggsci::cyan_material")[c(1,3,5,7)]
+  paletteer_d("ggsci::cyan_material")[c(1)],
+  paletteer_d("MetBrewer::Benedictus")[1:5]
 )
 
-up_plot_a4 <- ggplot(data = up_df_a4, aes(x=util_score, y=priv_score, fill=Method)) +
+up_plot_a4 <- ggplot(data = a4_list$up_df, aes(x=util_score, y=priv_score, fill=Method)) +
   geom_point(pch=21, color="black", size=3) +
   labs(title = "A4", x = "Utility", y = "Privacy") +
   #scale_fill_paletteer_d("rcartocolor::BluYl") +
-  scale_fill_manual(values = colormap) +
+  scale_fill_manual(values = colormap_a4) +
   theme_minimal() +
-  ylim(0.7,1.0) + xlim(0.3,0.85)
+  ylim(0.7,1.0) + xlim(0.1,0.85)
 
-#plot(up_plot_a4)
+plot(up_plot_a4)
 
 up_plot <- ggarrange(up_plot_adni, up_plot_a4, nrow=2, common.legend = TRUE, legend = "right")
 plot(up_plot)
@@ -311,12 +231,14 @@ priv_titels <- c(
   mia_recall_value = "MIA",
   att_discl_risk_value = "ADR"
 )
+priv_df_adni <- adni_list$priv_df
+priv_df_a4 <- a4_list$priv_df
 priv_df_adni <- priv_df_adni %>% mutate(eps_identif_risk_value = eps_identif_risk_value*100, 
                    hit_rate_value = hit_rate_value*100)
 priv_df_a4 <- priv_df_a4 %>% mutate(eps_identif_risk_value = eps_identif_risk_value*100, 
                                         hit_rate_value = hit_rate_value*100)
 
-get_privacy_plot <- function(priv_df, p) {
+get_privacy_plot <- function(priv_df, p, colormap) {
   pp <- ggplot(data = priv_df, aes(x = Method, y = !!sym(p), fill = Method)) +
     labs(title = priv_titels[p],
          x = "",
@@ -373,8 +295,8 @@ get_privacy_plot <- function(priv_df, p) {
 pPlotlist_adni <- list()
 pPlotlist_a4 <- list()
 for (p in privs) {
-  pp_adni <- get_privacy_plot(priv_df_adni, p)
-  pp_a4 <- get_privacy_plot(priv_df_a4, p)
+  pp_adni <- get_privacy_plot(priv_df_adni, p, colormap_adni)
+  pp_a4 <- get_privacy_plot(priv_df_a4, p, colormap_a4)
   pPlotlist_adni[[paste0(p, "_adni")]] <- pp_adni
   pPlotlist_a4[[paste0(p, "_a4")]] <- pp_a4
 }
@@ -384,9 +306,6 @@ plot(priv_grid_adni)
 
 priv_grid_a4 <- ggarrange(plotlist = pPlotlist_a4, ncol = 2, nrow = 3, common.legend = TRUE, legend = "right")
 plot(priv_grid_a4)
-
-ggsave("~/R/DDLS-plots/priv_grid_adni.tiff", priv_grid_adni, width = 10, height = 10, units = "in", dpi = 500)
-ggsave("~/R/DDLS-plots/priv_grid_a4.tiff", priv_grid_a4, width = 10, height = 10, units = "in", dpi = 500)
 
 #ggsave("~/R/DDLS-plots/util_grid.png", util_grid, width = 10, height = 10, units = "in", dpi = 500)
 #ggsave("~/R/DDLS-plots/priv_grid.png", priv_grid, width = 10, height = 10, units = "in", dpi = 500)
@@ -402,7 +321,7 @@ util_titles <- c(
   nnaa_value = "NNAA value"
 )
 
-get_util_plot <- function(util_df, u) {
+get_util_plot <- function(util_df, u, colormap) {
   up <- ggplot(data = util_df, aes(x = Method, y = !!sym(u), fill = Method)) +
     labs(title = util_titles[u],
          x = "",
@@ -442,8 +361,8 @@ get_util_plot <- function(util_df, u) {
 uPlotlist_adni <- list()
 uPlotlist_a4 <- list()
 for (u in utils) {
-  uPlotlist_adni[[u]] <- get_util_plot(util_df_adni, u)
-  uPlotlist_a4[[u]] <- get_util_plot(util_df_a4, u)
+  uPlotlist_adni[[u]] <- get_util_plot(adni_list$util_df, u, colormap_adni)
+  uPlotlist_a4[[u]] <- get_util_plot(a4_list$util_df, u, colormap_a4)
 }
 
 util_grid_adni <- ggarrange(plotlist = uPlotlist_adni, ncol = 2, nrow = 3, common.legend = TRUE, legend = "right")
@@ -452,12 +371,9 @@ plot(util_grid_adni)
 util_grid_a4 <- ggarrange(plotlist = uPlotlist_a4, ncol = 2, nrow = 3, common.legend = TRUE, legend = "right")
 plot(util_grid_a4)
 
-ggsave("~/R/DDLS-plots/util_grid_adni.tiff", util_grid_adni, width = 10, height = 10, units = "in", dpi = 500)
-ggsave("~/R/DDLS-plots/util_grid_a4.tiff", util_grid_a4, width = 10, height = 10, units = "in", dpi = 500)
-
 ##### Get specific values #####
 
-summary_stats_adni <- up_df_adni %>%
+summary_stats_adni <- adni_list$up_df %>%
   group_by(Method) %>%
   dplyr::summarize(
     mean_u = mean(util_score),
@@ -473,7 +389,7 @@ summary_stats_adni <- up_df_adni %>%
     ci_upr_p = mean_p + ci_margin_p
   )
 
-summary_stats_a4 <- up_df_a4 %>%
+summary_stats_a4 <- a4_list$up_df %>%
   group_by(Method) %>%
   dplyr::summarize(
     mean_u = mean(util_score),
@@ -538,126 +454,28 @@ priv_df_a4 %>% group_by(dataset) %>%
 
 # Bonus experiment
 #### ADNI+ ####
-epsilons <- c(100, NA) 
-samples <- c(100, 18)
-file_paths <- paste0("~/Python/WASP-DDLS/SE-benchmark/adni_plus/bmk_new_deg2_eps", ifelse(is.na(epsilons), "zero", epsilons), ".csv")
+adni_plus_list <- load_benchmark_data('adni_plus', 
+                                      epsilons_ds = c(100, NA), 
+                                      settings_ctgan = c("default"), 
+                                      temps_tabpfn = c('1.0'),
+                                      eps_td = c('10.0', '50.0') )
 
-# Read CSVs in a loop
-res_list <- list()
-for (i in seq_along(epsilons)) {
-  df <- read.csv(file_paths[i])
-  df$Epsilon <- epsilons[i]
-  df$samples <- samples[i]
-  res_list[[i]] <- df
-}
-
-# Combine all data frames
-bmk_ds <- bind_rows(res_list)
-
-
-util_cols <- c("mutual_inf_diff_value",  "ks_tvd_stat_value", 
-               "frac_ks_sigs_value","avg_F1_diff_value", "avg_F1_diff_hout_value", 
-               "nnaa_value")
-priv_cols <- c("priv_loss_nndr_value", "priv_loss_nnaa_value","hit_rate_value", 
-               "avg_nndr_value", "eps_identif_risk_value", "priv_loss_eps_value",  
-               "mia_recall_value", "att_discl_risk_value")
-cols <- c(util_cols, priv_cols)
-
-
-bmk_ds$Epsilon <- bmk_ds %>% 
-  select(Epsilon) %>% 
-  mutate_all(~replace(., is.na(.), 0)) %>% 
-  mutate(Epsilon = factor(Epsilon, levels = as.character(unique(Epsilon)))) %>% 
-  pull(Epsilon)  
-
-# CTGAN 
-epochs <- c(750) 
-setting <- c("default")
-file_paths <- paste0("~/Python/WASP-DDLS/SE-benchmark/adni_plus/bmk_new_ctgan_", setting, "_epochs_", epochs, ".csv")
-#file_paths <- c(file_paths, "~/Python/WASP-DDLS/SE-benchmark/bmk_ctgan_epochs_100.csv")
-
-# Read CSVs in a loop
-res_list <- list()
-for (i in seq_along(file_paths)) {
-  df <- read.csv(file_paths[i])
-  df$Epochs <- epochs[i]
-  df$samples <- 100
-  res_list[[i]] <- df
-}
-
-# Combine all data frames
-bmk_ctgan <- bind_rows(res_list)
-
-bmk_ctgan$Epochs <- as.factor(bmk_ctgan$Epochs)
-
-
-# Synthpop 
-bmk_synthpop <- read.csv("~/Python/WASP-DDLS/SE-benchmark/adni_plus/bmk_new_synthpop.csv") %>% mutate(
-  Epochs = 0,
-  samples = 100
-)
-
-# TabPFN
-bmk_tabpfn <- read.csv("~/Python/WASP-DDLS/SE-benchmark/adni_plus/bmk_new_tabpfn_t_1.0.csv")
-
-
-label_list = c("DS (100)", "DS w/o DP", "CTGAN (default)", "Synthpop", "TabPFN (t=1.0)") 
-               
-
-util_df_adni_plus <- rbind(select(bmk_ds, dataset, model, all_of(util_cols)),
-                      select(bmk_ctgan, dataset, model, all_of(util_cols)),
-                      select(bmk_synthpop, dataset, model, all_of(util_cols)),
-                      select(bmk_tabpfn, dataset, model, all_of(util_cols))
-                      ) |>
-  dplyr::mutate(avg_F1_diff_value = abs(avg_F1_diff_value),
-                avg_F1_diff_hout_value = abs(avg_F1_diff_hout_value)) |>
-  dplyr::mutate(mutual_inf_diff = 1 - tanh(mutual_inf_diff_value),
-                ks_tvd_stat = 1 - ks_tvd_stat_value,
-                frac_ks_sigs = 1 - frac_ks_sigs_value,
-                avg_F1_diff = 1 - abs(avg_F1_diff_value),
-                avg_F1_diff_hout = 1 - abs(avg_F1_diff_hout_value),
-                nnaa = 1 - nnaa_value) 
-util_df_adni_plus$util_score <- util_df_adni_plus |> dplyr::select(c(mutual_inf_diff, ks_tvd_stat, frac_ks_sigs, avg_F1_diff, avg_F1_diff_hout, nnaa)) |> rowMeans()
-
-util_df_adni_plus$Method <- factor(util_df_adni_plus$dataset, levels = unique(util_df_adni_plus$dataset),
-                              labels=label_list)
-
-priv_df_adni_plus <- rbind(select(bmk_ds, dataset, model, all_of(priv_cols)),
-                      select(bmk_ctgan, dataset, model, all_of(priv_cols)),
-                      select(bmk_synthpop, dataset, model, all_of(priv_cols)),
-                      select(bmk_tabpfn, dataset, model, all_of(priv_cols))
-                      ) |>
-  dplyr::mutate(priv_loss_nndr = 1 - abs(priv_loss_nndr_value),
-                priv_loss_nnaa = 1 - abs(priv_loss_nnaa_value),
-                priv_loss_eps = 1 - abs(priv_loss_eps_value),
-                hit_rate = 1 - hit_rate_value,
-                eps_identif_risk = 1 - eps_identif_risk_value,
-                mia_recall = 1 - mia_recall_value,
-                att_discl_risk = 1 - att_discl_risk_value) 
-priv_df_adni_plus$priv_score <- priv_df_adni_plus |> dplyr::select(c(priv_loss_nndr, priv_loss_nnaa, priv_loss_eps, hit_rate, eps_identif_risk, att_discl_risk)) |> rowMeans()
-
-priv_df_adni_plus$Method <- factor(priv_df_adni_plus$dataset, levels = unique(priv_df_adni_plus$dataset),
-                              labels=label_list)
-
-up_df_adni_plus <- util_df_adni_plus |> dplyr::select(c(Method, model, util_score)) |> 
-  dplyr::inner_join(priv_df_adni_plus |> dplyr::select(c(Method, model, priv_score)), by = c("Method", "model"))
-
-
-colormap <- c(
-  paletteer_d("rcartocolor::BluYl")[1:2],
+colormap_plus <- c(
+  paletteer_d("rcartocolor::BluYl")[c(4,6)],
   paletteer_d("beyonce::X58")[3],
   "#663399",
-  paletteer_d("ggsci::cyan_material")[c(1,3,5,7)]
+  paletteer_d("ggsci::cyan_material")[c(1)],
+  paletteer_d("MetBrewer::Benedictus")[c(2,4,5)]
 )
 
-up_plot_adni_plus <- ggplot(data = up_df_adni_plus, aes(x=util_score, y=priv_score, fill=Method)) +
+up_plot_adni_plus <- ggplot(data = adni_plus_list$up_df, aes(x=util_score, y=priv_score, fill=Method)) +
   labs(title = "ADNI+", x = "Utility", y = "Privacy") +
   #scale_fill_paletteer_d("rcartocolor::BluYl") +
-  scale_fill_manual(values = colormap) +
-  theme_minimal() 
-  #ylim(0.7,1.0) + xlim(0.3,0.85)
+  scale_fill_manual(values = colormap_plus) +
+  theme_minimal() +
+  ylim(0.7,1.0) + xlim(0.1,0.85)
 
-up_df_adni_ <- up_df_adni %>% filter(Method %in% up_df_adni_plus$Method)
+up_df_adni_ <- adni_list$up_df %>% filter(Method %in% adni_plus_list$up_df$Method)
 up_plot_adni_plus <- up_plot_adni_plus + 
   geom_point(pch=21, color="gray", size = 3, data=up_df_adni_, alpha=0.75) + 
   geom_point(pch=21, color = "black", size=3) 
@@ -671,10 +489,16 @@ up_plot_all <- ggarrange(up_plot_all, up_plot_adni_plus, nrow=2, common.legend =
 plot(up_plot_all)
 
 ##### Saving and stuff ####
-ggsave("~/R/DDLS-plots/up_plot_all.tiff", up_plot_all, width = 10, height = 9, units = "in", dpi = 500)
+ggsave("~/R/DDLS-plots/priv_grid_adni.tiff", priv_grid_adni, width = 12, height = 12, units = "in", dpi = 500)
+ggsave("~/R/DDLS-plots/priv_grid_a4.tiff", priv_grid_a4, width = 12, height = 12, units = "in", dpi = 500)
+
+ggsave("~/R/DDLS-plots/util_grid_adni.tiff", util_grid_adni, width = 12, height = 12, units = "in", dpi = 500)
+ggsave("~/R/DDLS-plots/util_grid_a4.tiff", util_grid_a4, width = 12, height = 12, units = "in", dpi = 500)
+
+ggsave("~/R/DDLS-plots/up_plot_all.tiff", up_plot_all, width = 12, height = 10, units = "in", dpi = 500)
 
 
-summary_stats_adni_plus <- up_df_adni_plus %>%
+summary_stats_adni_plus <- adni_plus_list$up_df %>%
   group_by(Method) %>%
   dplyr::summarize(
     mean_u = mean(util_score),
@@ -696,19 +520,19 @@ res <- summary_stats_adni %>% inner_join(summary_stats_adni_plus, by='Method', s
          ci.bound_p = (mean_p.adni - mean_p.adni_plus) - 1.96 * sqrt((sd_p.adni^2/num.adni) + (sd_p.adni^2/num.adni)))
 
 res <- data.frame()
-for(method in unique(up_df_adni_plus$Method)) {
-  a <- up_df_adni_plus %>% filter(Method == method)
-  b <- up_df_adni %>% filter(Method == method)
+for(method in unique(adni_plus_list$up_df$Method)) {
+  a <- adni_plus_list$up_df %>% filter(Method == method)
+  b <- adni_list$up_df %>% filter(Method == method)
   
   t_u <- t.test(a$util_score, b$util_score, alternative = "two.sided", var.equal=F)
   t_p <- t.test(a$priv_score, b$priv_score, alternative = "two.sided", var.equal=F)
   res <- rbind(res, data.frame(Method = method,
                                #t_stat_u = t_u$statistic,
-                               p_value_u = t_u$p.value * nrow(a),
+                               p_value_u = round(t_u$p.value * nrow(a),3),
                                mean_u_x = t_u$estimate[1],
                                mean_u_y = t_u$estimate[2],
                                #t_stat_p = t_p$statistic,
-                               p_value_p = t_p$p.value * nrow(a),
+                               p_value_p = round(t_p$p.value * nrow(a),3),
                                mean_p_x = t_p$estimate[1],
                                mean_p_y = t_p$estimate[2]
                                ))

@@ -1,0 +1,17 @@
+numpy
+pandas
+scipy
+scikit-learn
+matplotlib
+seaborn
+networkx
+plotly
+tqdm
+statsmodels
+syntheval
+lightgbm
+tabpfn
+tabpfn-extensions
+torch
+huggingface-hub
+ctgan
