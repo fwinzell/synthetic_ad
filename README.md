@@ -7,16 +7,16 @@ R code was used for creating the real datasets, and generating the plots of the 
 If you have any questions about the repo - feel free to contact me at filip.winzell@math.lth.se or filip.winzell@di.ku.dk
 
 **Abstract**
-### INTRODUCTION
+INTRODUCTION
 The scarcity of large, clinically relevant cohorts is becoming a bottleneck in Alzheimer's disease (AD) research, as their sensitive nature makes open data sharing difficult. Privacy-preserving synthetic datasets generated with machine learning may help address this challenge.
 
-### METHODS
+METHODS
 We compared five frameworks for generating synthetic tabular data from the Alzheimer's Disease Neuroimaging Initiative and Anti-Amyloid Treatment in Asymptomatic Alzheimer's Disease cohorts, with a set of empirical privacy and utility metrics. Two of the methods, DataSynthesizer and TableDiffusion, provide $\epsilon$-differential privacy guarantees.
 
-### RESULTS
+RESULTS
 Methods with differential privacy achieved high privacy ratings but low levels of utility. Deep learning methods like Tabular Prior-data Fitted Network (TabPFN) and Conditional Generative Adversarial Network (CTGAN) also showed high privacy with limited utility. In contrast, non-private DataSynthesizer and Synthpop offered higher utility at a cost of lower privacy.
 
-### DISCUSSION
+DISCUSSION
 The evaluated methods demonstrated a clear trade-off between privacy and utility. High privacy was generally associated with insufficient utility, highlighting the need for further research into synthetic data generation for AD.
 
 
