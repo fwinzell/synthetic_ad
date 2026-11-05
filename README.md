@@ -19,4 +19,6 @@ Methods with differential privacy achieved high privacy ratings but low levels o
 DISCUSSION\
 The evaluated methods demonstrated a clear trade-off between privacy and utility. High privacy was generally associated with insufficient utility, highlighting the need for further research into synthetic data generation for AD.
 
+\
 ![Figure 4 from paper](figure_4.png)
+**Figure 4** Privacy versus utility score. Evaluated for the synthetic datasets generated using DS with ($\epsilon$ in parenthesis) and without DP, CTGAN (with number of epochs in parenthesis), Synthpop, TabPFN (temperature in parentheses), and TD ($\epsilon$ in parenthesis). The top row shows the results on the ADNI and A4 cohorts. The bottom shows the ADNI+ results, with the corresponding results from ADNI shaded in the background. A4, Anti-Amyloid Treatment in Asymptomatic Alzheimer's Disease; ADNI, Alzheimer's Disease Neuroimaging Initiative; CTGAN, Conditional Generative Adversarial Network; DP, differential privacy; DS, DataSynthesizer; IQR, interquartile range; TabPFN, Tabular Prior-data Fitted Network; TD, TableDiffusion
