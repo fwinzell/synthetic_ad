@@ -19,4 +19,4 @@ Methods with differential privacy achieved high privacy ratings but low levels o
 DISCUSSION\
 The evaluated methods demonstrated a clear trade-off between privacy and utility. High privacy was generally associated with insufficient utility, highlighting the need for further research into synthetic data generation for AD.
 
-![Figure 4 from paper](figure_4.pdf)
+![Figure 4 from paper](figure_4.tiff)
